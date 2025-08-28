@@ -248,7 +248,7 @@ def update_project(project_id):
     if 'status' in data:
         valid_statuses = ['active', 'inactive', 'completed', 'archived']
         if data['status'] not in valid_statuses:
-            return create_api_response(False, f'Status must be one of: {', '.join(valid_statuses)}', None, 400)
+            return create_api_response(False, f"Status must be one of: {', '.join(valid_statuses)}", None, 400)
         
         if data['status'] != project.status:
             project.status = data['status']

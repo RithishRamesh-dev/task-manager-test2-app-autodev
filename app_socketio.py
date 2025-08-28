@@ -8,22 +8,28 @@ import os
 import sys
 from flask import Flask
 
+# Initialize variables
+app = None
+socketio = None
+db = None
+startup_error = None
+
 # Create application instance with error handling
 try:
-    from app import create_app, socketio, db
+    from app import create_app, socketio as _socketio, db as _db
     from flask_migrate import upgrade
     app = create_app(os.getenv('FLASK_ENV', 'default'))
+    socketio = _socketio
+    db = _db
 except Exception as e:
+    startup_error = str(e)
     print(f"Error creating application: {e}", file=sys.stderr)
     # Create a minimal Flask app for error handling
     app = Flask(__name__)
     
     @app.route('/health')
     def health_error():
-        return {'status': 'error', 'message': f'Application failed to start: {str(e)}'}, 500
-    
-    socketio = None
-    db = None
+        return {'status': 'error', 'message': f'Application failed to start: {startup_error}'}, 500
 
 @app.cli.command()
 def deploy():

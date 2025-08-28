@@ -118,7 +118,7 @@ def validate_json_fields(required_fields=None, optional_fields=None):
                 if unexpected_fields:
                     return jsonify({
                         'success': False,
-                        'message': f'Unexpected fields: {', '.join(unexpected_fields)}'
+                        'message': f"Unexpected fields: {', '.join(unexpected_fields)}"
                     }), 400
             
             return f(*args, **kwargs)
