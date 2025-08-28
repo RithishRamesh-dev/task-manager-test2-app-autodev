@@ -40,14 +40,7 @@ def make_shell_context():
         'socketio': socketio
     }
 
-# Initialize database tables
-with app.app_context():
-    try:
-        db.create_all()
-    except Exception as e:
-        app.logger.error(f"Database initialization error: {e}")
-
-# Health check endpoint
+# Health check endpoint (must be defined before any database operations)
 @app.route('/health')
 def health_check():
     """Health check endpoint for deployment monitoring."""
@@ -56,6 +49,21 @@ def health_check():
         'message': 'Task Manager API is running',
         'websocket_enabled': True
     }
+
+# Initialize database tables safely
+def init_database():
+    """Initialize database tables safely."""
+    try:
+        with app.app_context():
+            db.create_all()
+            app.logger.info("Database tables created successfully")
+    except Exception as e:
+        app.logger.error(f"Database initialization error: {e}")
+        # Don't fail the app startup, just log the error
+
+# Initialize database on startup (safer approach)
+if not app.config.get('TESTING'):
+    init_database()
 
 # WebSocket status endpoint
 @app.route('/websocket/status')
