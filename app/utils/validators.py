@@ -72,7 +72,7 @@ def validate_task_status(status):
     """Validate task status"""
     valid_statuses = ['pending', 'in_progress', 'completed', 'cancelled']
     if status not in valid_statuses:
-        return {'valid': False, 'message': f'Status must be one of: {', '.join(valid_statuses)}'}
+        return {'valid': False, 'message': f"Status must be one of: {', '.join(valid_statuses)}"}
     return {'valid': True, 'message': 'Status is valid'}
 
 
