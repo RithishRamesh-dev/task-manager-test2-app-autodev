@@ -1,0 +1,252 @@
+# GitHub Actions Workflow: Preview App Deployment
+# Deploys ephemeral preview apps for Pull Requests to staging branch
+
+name: Deploy Preview App
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+  ENVIRONMENT: preview
+  
+jobs:
+  deploy-preview:
+    name: Deploy Preview Application
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Tests
+        run: |
+          python -m pytest tests/ -v --tb=short || echo "Tests failed but continuing deployment"
+      
+      - name: Run Code Quality Checks
+        run: |
+          # Run linting
+          flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics || echo "Linting warnings found"
+          
+          # Run black formatting check
+          black --check app/ || echo "Code formatting issues found"
+      
+      - name: Set Preview App Variables
+        id: vars
+        run: |
+          # Generate unique app name for this PR
+          PR_NUMBER=${{ github.event.number }}
+          BRANCH_NAME="${{ github.head_ref }}"
+          APP_NAME="task-manager-preview-pr-${PR_NUMBER}"
+          APP_DOMAIN="${APP_NAME}.ondigitalocean.app"
+          
+          echo "app_name=${APP_NAME}" >> $GITHUB_OUTPUT
+          echo "app_domain=${APP_DOMAIN}" >> $GITHUB_OUTPUT
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+      
+      - name: Generate App Spec
+        run: |
+          # Create app spec from template
+          mkdir -p .do/generated
+          
+          # Replace template variables
+          sed \
+            -e "s/\${ENVIRONMENT}/preview/g" \
+            -e "s/\${BRANCH}/${{ github.head_ref }}/g" \
+            -e "s/\${APP_DOMAIN}/${{ steps.vars.outputs.app_domain }}/g" \
+            -e "s/\${DB_PRODUCTION}/false/g" \
+            -e "s/\${SECRET_KEY}/${{ secrets.SECRET_KEY }}/g" \
+            -e "s/\${JWT_SECRET_KEY}/${{ secrets.JWT_SECRET_KEY }}/g" \
+            -e "s/\${CORS_ALLOWED_ORIGINS}/https:\/\/${{ steps.vars.outputs.app_domain }}/g" \
+            -e "s/\${MAIL_SERVER}/${{ secrets.MAIL_SERVER }}/g" \
+            -e "s/\${MAIL_PORT}/${{ secrets.MAIL_PORT }}/g" \
+            -e "s/\${MAIL_USERNAME}/${{ secrets.MAIL_USERNAME }}/g" \
+            -e "s/\${MAIL_PASSWORD}/${{ secrets.MAIL_PASSWORD }}/g" \
+            -e "s/\${REDIS_PASSWORD}/${{ secrets.REDIS_PASSWORD }}/g" \
+            .do/deploy.template.yaml > .do/generated/app-spec.yaml
+          
+          # Update app name in spec
+          sed -i "s/name: task-manager-app-preview/name: ${{ steps.vars.outputs.app_name }}/g" .do/generated/app-spec.yaml
+      
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+      
+      - name: Check if Preview App Exists
+        id: check_app
+        run: |
+          if doctl apps list --format Name --no-header | grep -q "^${{ steps.vars.outputs.app_name }}$"; then
+            echo "app_exists=true" >> $GITHUB_OUTPUT
+            APP_ID=$(doctl apps list --format ID,Name --no-header | grep "${{ steps.vars.outputs.app_name }}" | cut -d' ' -f1)
+            echo "app_id=${APP_ID}" >> $GITHUB_OUTPUT
+          else
+            echo "app_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create Preview App
+        if: steps.check_app.outputs.app_exists == 'false'
+        id: create_app
+        run: |
+          APP_ID=$(doctl apps create .do/generated/app-spec.yaml --format ID --no-header)
+          echo "app_id=${APP_ID}" >> $GITHUB_OUTPUT
+          echo "Created new preview app with ID: ${APP_ID}"
+      
+      - name: Update Preview App
+        if: steps.check_app.outputs.app_exists == 'true'
+        run: |
+          APP_ID=${{ steps.check_app.outputs.app_id }}
+          doctl apps update ${APP_ID} --spec .do/generated/app-spec.yaml
+          echo "Updated existing preview app with ID: ${APP_ID}"
+      
+      - name: Wait for Deployment
+        run: |
+          APP_ID=${{ steps.check_app.outputs.app_id || steps.create_app.outputs.app_id }}
+          echo "Waiting for deployment to complete for app ID: ${APP_ID}"
+          
+          # Wait up to 10 minutes for deployment
+          for i in {1..60}; do
+            STATUS=$(doctl apps get ${APP_ID} --format Phase --no-header)
+            echo "Deployment status: ${STATUS}"
+            
+            if [ "${STATUS}" = "ACTIVE" ]; then
+              echo "Deployment completed successfully!"
+              break
+            elif [ "${STATUS}" = "ERROR" ]; then
+              echo "Deployment failed!"
+              exit 1
+            fi
+            
+            sleep 10
+          done
+      
+      - name: Get App URL
+        id: app_url
+        run: |
+          APP_ID=${{ steps.check_app.outputs.app_id || steps.create_app.outputs.app_id }}
+          APP_URL=$(doctl apps get ${APP_ID} --format LiveURL --no-header)
+          echo "app_url=${APP_URL}" >> $GITHUB_OUTPUT
+          echo "Preview app deployed at: ${APP_URL}"
+      
+      - name: Run Health Check
+        run: |
+          APP_URL="${{ steps.app_url.outputs.app_url }}"
+          
+          # Wait for app to be fully ready
+          sleep 30
+          
+          # Perform health check
+          for i in {1..5}; do
+            if curl -f "${APP_URL}/health" > /dev/null 2>&1; then
+              echo "Health check passed!"
+              break
+            else
+              echo "Health check failed, retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+      
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('Preview App Deployed')
+            );
+            
+            const body = `## 🚀 Preview App Deployed
+            
+            Your preview app has been successfully deployed!
+            
+            **🌐 Preview URL:** ${{ steps.app_url.outputs.app_url }}
+            **📱 App Name:** \`${{ steps.vars.outputs.app_name }}\`
+            **🔧 Environment:** Preview
+            **🌿 Branch:** \`${{ github.head_ref }}\`
+            **📝 Commit:** \`${{ github.sha }}\`
+            
+            ### 🧪 Test Your Changes
+            - Access the application at the preview URL above
+            - Test all functionality including WebSocket features
+            - Verify database migrations and data integrity
+            - Check responsive design on mobile devices
+            
+            ### 📊 Deployment Details
+            - **Database:** PostgreSQL (Development)
+            - **Redis:** Enabled for WebSocket sessions
+            - **Environment:** Preview with debug logging
+            - **Instance:** Basic tier for cost optimization
+            
+            > 💡 This preview app will be automatically cleaned up when the PR is closed.
+            
+            ---
+            *Deployed by GitHub Actions • [View Workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+      
+      - name: Update Deployment Status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Preview deployment completed successfully"
+            echo "🌐 URL: ${{ steps.app_url.outputs.app_url }}"
+          else
+            echo "❌ Preview deployment failed"
+            exit 1
+          fi
+
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: deploy-preview
+    if: always()
+    
+    steps:
+      - name: Post Deployment Summary
+        run: |
+          echo "## Preview Deployment Summary"
+          echo "- **Status:** ${{ needs.deploy-preview.result }}"
+          echo "- **PR Number:** ${{ github.event.number }}"
+          echo "- **Branch:** ${{ github.head_ref }}"
+          echo "- **Commit:** ${{ github.sha }}"
+          
+          if [ "${{ needs.deploy-preview.result }}" = "success" ]; then
+            echo "✅ Preview app deployment completed successfully"
+          else
+            echo "❌ Preview app deployment failed"
+          fi

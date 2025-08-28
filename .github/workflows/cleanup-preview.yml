@@ -1,0 +1,312 @@
+# GitHub Actions Workflow: Cleanup Preview Apps
+# Automatically removes ephemeral preview apps when PRs are closed
+
+name: Cleanup Preview App
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+env:
+  DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+
+jobs:
+  cleanup-preview-app:
+    name: Remove Preview Application
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+    
+    steps:
+      - name: Set Preview App Variables
+        id: vars
+        run: |
+          PR_NUMBER=${{ github.event.number }}
+          APP_NAME="task-manager-preview-pr-${PR_NUMBER}"
+          
+          echo "app_name=${APP_NAME}" >> $GITHUB_OUTPUT
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+          
+          echo "🗑️ Preparing to cleanup preview app: ${APP_NAME}"
+      
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+      
+      - name: Find Preview App
+        id: find_app
+        run: |
+          APP_NAME="${{ steps.vars.outputs.app_name }}"
+          
+          echo "🔍 Searching for preview app: ${APP_NAME}"
+          
+          if doctl apps list --format Name --no-header | grep -q "^${APP_NAME}$"; then
+            APP_ID=$(doctl apps list --format ID,Name --no-header | grep "${APP_NAME}" | cut -d' ' -f1)
+            echo "app_exists=true" >> $GITHUB_OUTPUT
+            echo "app_id=${APP_ID}" >> $GITHUB_OUTPUT
+            echo "✅ Found preview app with ID: ${APP_ID}"
+          else
+            echo "app_exists=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Preview app not found (may have been already deleted)"
+          fi
+      
+      - name: Get App Details Before Deletion
+        if: steps.find_app.outputs.app_exists == 'true'
+        id: app_details
+        run: |
+          APP_ID=${{ steps.find_app.outputs.app_id }}
+          
+          echo "📊 Getting app details before deletion..."
+          
+          # Get app URL for reference
+          APP_URL=$(doctl apps get ${APP_ID} --format LiveURL --no-header 2>/dev/null || echo "URL not available")
+          echo "app_url=${APP_URL}" >> $GITHUB_OUTPUT
+          
+          # Get app status
+          APP_STATUS=$(doctl apps get ${APP_ID} --format Phase --no-header 2>/dev/null || echo "Status not available")
+          echo "app_status=${APP_STATUS}" >> $GITHUB_OUTPUT
+          
+          # Get creation time (if available)
+          APP_CREATED=$(doctl apps get ${APP_ID} --format CreatedAt --no-header 2>/dev/null || echo "Creation time not available")
+          echo "app_created=${APP_CREATED}" >> $GITHUB_OUTPUT
+          
+          echo "📝 App details captured:"
+          echo "  - URL: ${APP_URL}"
+          echo "  - Status: ${APP_STATUS}"
+          echo "  - Created: ${APP_CREATED}"
+      
+      - name: Delete Preview App
+        if: steps.find_app.outputs.app_exists == 'true'
+        id: delete_app
+        run: |
+          APP_ID=${{ steps.find_app.outputs.app_id }}
+          APP_NAME="${{ steps.vars.outputs.app_name }}"
+          
+          echo "🗑️ Deleting preview app: ${APP_NAME} (ID: ${APP_ID})"
+          
+          # Attempt to delete the app
+          if doctl apps delete ${APP_ID} --force; then
+            echo "delete_success=true" >> $GITHUB_OUTPUT
+            echo "✅ Preview app deleted successfully"
+          else
+            echo "delete_success=false" >> $GITHUB_OUTPUT
+            echo "❌ Failed to delete preview app"
+            exit 1
+          fi
+      
+      - name: Verify App Deletion
+        if: steps.find_app.outputs.app_exists == 'true' && steps.delete_app.outputs.delete_success == 'true'
+        run: |
+          APP_NAME="${{ steps.vars.outputs.app_name }}"
+          
+          echo "✅ Verifying app deletion..."
+          
+          # Wait a moment for deletion to propagate
+          sleep 10
+          
+          # Check if app still exists
+          if doctl apps list --format Name --no-header | grep -q "^${APP_NAME}$"; then
+            echo "⚠️ App still appears in list (deletion may be in progress)"
+          else
+            echo "✅ App successfully removed from list"
+          fi
+      
+      - name: Calculate App Lifetime
+        if: steps.find_app.outputs.app_exists == 'true'
+        id: lifetime
+        run: |
+          APP_CREATED="${{ steps.app_details.outputs.app_created }}"
+          
+          if [ "${APP_CREATED}" != "Creation time not available" ]; then
+            # Calculate lifetime (simplified - assumes UTC times)
+            CREATED_TIMESTAMP=$(date -d "${APP_CREATED}" +%s 2>/dev/null || echo "0")
+            CURRENT_TIMESTAMP=$(date +%s)
+            LIFETIME_SECONDS=$((CURRENT_TIMESTAMP - CREATED_TIMESTAMP))
+            
+            if [ ${LIFETIME_SECONDS} -gt 0 ]; then
+              LIFETIME_HOURS=$((LIFETIME_SECONDS / 3600))
+              LIFETIME_MINUTES=$(((LIFETIME_SECONDS % 3600) / 60))
+              
+              echo "lifetime_hours=${LIFETIME_HOURS}" >> $GITHUB_OUTPUT
+              echo "lifetime_minutes=${LIFETIME_MINUTES}" >> $GITHUB_OUTPUT
+              echo "📊 App lifetime: ${LIFETIME_HOURS}h ${LIFETIME_MINUTES}m"
+            else
+              echo "⚠️ Could not calculate app lifetime"
+            fi
+          fi
+      
+      - name: Update PR with Cleanup Status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const appExists = '${{ steps.find_app.outputs.app_exists }}' === 'true';
+            const deleteSuccess = '${{ steps.delete_app.outputs.delete_success }}' === 'true';
+            const appName = '${{ steps.vars.outputs.app_name }}';
+            const appUrl = '${{ steps.app_details.outputs.app_url }}';
+            const appStatus = '${{ steps.app_details.outputs.app_status }}';
+            const lifetimeHours = '${{ steps.lifetime.outputs.lifetime_hours }}';
+            const lifetimeMinutes = '${{ steps.lifetime.outputs.lifetime_minutes }}';
+            
+            let title, emoji, statusText;
+            
+            if (!appExists) {
+              title = 'Preview App Not Found';
+              emoji = 'ℹ️';
+              statusText = 'No preview app was found to cleanup';
+            } else if (deleteSuccess) {
+              title = 'Preview App Cleaned Up';
+              emoji = '✅';
+              statusText = 'Successfully removed preview app';
+            } else {
+              title = 'Preview App Cleanup Failed';
+              emoji = '❌';
+              statusText = 'Failed to remove preview app';
+            }
+            
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('Preview App')
+            );
+            
+            const lifetimeInfo = lifetimeHours && lifetimeMinutes ? 
+              `**⏱️ App Lifetime:** ${lifetimeHours}h ${lifetimeMinutes}m` : '';
+            
+            const body = `## ${emoji} ${title}
+            
+            ${statusText} for PR #${{ github.event.number }}.
+            
+            ${appExists ? `
+            **📱 App Name:** \`${appName}\`
+            **🌐 URL:** ${appUrl || 'Not available'}
+            **📊 Final Status:** ${appStatus || 'Not available'}
+            ${lifetimeInfo}
+            ` : ''}
+            
+            ### 🧹 Cleanup Details
+            - **PR Status:** ${context.payload.pull_request.merged ? 'Merged' : 'Closed'}
+            - **Cleanup Action:** ${appExists ? (deleteSuccess ? 'Successful' : 'Failed') : 'Not needed'}
+            - **Timestamp:** ${new Date().toISOString()}
+            
+            ${appExists && deleteSuccess ? `
+            ### ♻️ Resources Freed
+            - DigitalOcean App Platform instance
+            - Associated database (development tier)
+            - Redis cache instance
+            - Static file storage
+            ` : ''}
+            
+            ${!deleteSuccess && appExists ? `
+            ### ⚠️ Manual Cleanup Required
+            The preview app could not be automatically deleted. Please check:
+            - DigitalOcean dashboard for manual cleanup
+            - App platform status and any blocking deployments
+            - Contact DevOps if the issue persists
+            ` : ''}
+            
+            ---
+            *Cleanup managed by GitHub Actions • [View Workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+      
+      - name: Log Cleanup Summary
+        if: always()
+        run: |
+          echo "🧹 PREVIEW APP CLEANUP SUMMARY"
+          echo "=============================="
+          echo "PR Number: ${{ github.event.number }}"
+          echo "App Name: ${{ steps.vars.outputs.app_name }}"
+          echo "App Found: ${{ steps.find_app.outputs.app_exists }}"
+          
+          if [ "${{ steps.find_app.outputs.app_exists }}" = "true" ]; then
+            echo "App ID: ${{ steps.find_app.outputs.app_id }}"
+            echo "App URL: ${{ steps.app_details.outputs.app_url }}"
+            echo "App Status: ${{ steps.app_details.outputs.app_status }}"
+            echo "Delete Success: ${{ steps.delete_app.outputs.delete_success }}"
+            
+            if [ -n "${{ steps.lifetime.outputs.lifetime_hours }}" ]; then
+              echo "App Lifetime: ${{ steps.lifetime.outputs.lifetime_hours }}h ${{ steps.lifetime.outputs.lifetime_minutes }}m"
+            fi
+          fi
+          
+          echo "Cleanup Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo "=============================="
+          
+          if [ "${{ steps.find_app.outputs.app_exists }}" = "true" ] && [ "${{ steps.delete_app.outputs.delete_success }}" = "true" ]; then
+            echo "✅ Cleanup completed successfully"
+          elif [ "${{ steps.find_app.outputs.app_exists }}" = "false" ]; then
+            echo "ℹ️ No cleanup required"
+          else
+            echo "❌ Cleanup failed - manual intervention may be required"
+          fi
+
+  cleanup-summary:
+    name: Cleanup Summary
+    runs-on: ubuntu-latest
+    needs: cleanup-preview-app
+    if: always()
+    
+    steps:
+      - name: Generate Cleanup Report
+        run: |
+          echo "## 🧹 Preview App Cleanup Report"
+          echo ""
+          echo "**PR:** #${{ github.event.number }}"
+          echo "**Status:** ${{ needs.cleanup-preview-app.result }}"
+          echo "**Trigger:** PR ${{ github.event.action }}"
+          echo "**Timestamp:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo ""
+          
+          case "${{ needs.cleanup-preview-app.result }}" in
+            "success")
+              echo "✅ Preview app cleanup completed successfully"
+              echo "- All resources have been properly cleaned up"
+              echo "- No manual intervention required"
+              ;;
+            "failure")
+              echo "❌ Preview app cleanup encountered issues"
+              echo "- Some resources may require manual cleanup"
+              echo "- Check DigitalOcean dashboard for orphaned resources"
+              ;;
+            "skipped")
+              echo "⏭️ Preview app cleanup was skipped"
+              echo "- No preview app was found for this PR"
+              ;;
+            *)
+              echo "❓ Unknown cleanup status"
+              ;;
+          esac
+          
+          echo ""
+          echo "### 📊 Cost Optimization"
+          echo "- Ephemeral preview apps help control costs"
+          echo "- Automatic cleanup prevents resource accumulation"
+          echo "- Resources are freed immediately when PRs are closed"
+      
+      - name: Update Metrics
+        run: |
+          # This could send metrics to monitoring systems
+          echo "📈 Updating cleanup metrics..."
+          echo "- Preview app cleanup: ${{ needs.cleanup-preview-app.result }}"
+          echo "- PR number: ${{ github.event.number }}"
+          echo "- Cleanup timestamp: $(date +%s)"
