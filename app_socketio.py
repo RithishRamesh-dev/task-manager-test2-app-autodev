@@ -68,8 +68,9 @@ def websocket_status():
         'status': 'active'
     }
 
+# For production deployment with gunicorn
 if __name__ == '__main__':
-    # Run with SocketIO support
+    # Run with SocketIO support for development
     socketio.run(
         app,
         host='0.0.0.0',
