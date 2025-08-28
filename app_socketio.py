@@ -40,10 +40,12 @@ def make_shell_context():
         'socketio': socketio
     }
 
-@app.before_first_request
-def create_tables():
-    """Create database tables on first request."""
-    db.create_all()
+# Initialize database tables
+with app.app_context():
+    try:
+        db.create_all()
+    except Exception as e:
+        app.logger.error(f"Database initialization error: {e}")
 
 # Health check endpoint
 @app.route('/health')
