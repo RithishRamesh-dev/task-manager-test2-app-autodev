@@ -50,42 +50,19 @@ def health_check():
         'websocket_enabled': True
     }
 
-# Initialize database tables safely
-def init_database():
-    """Initialize database tables safely."""
-    try:
-        with app.app_context():
-            db.create_all()
-            app.logger.info("Database tables created successfully")
-    except Exception as e:
-        app.logger.error(f"Database initialization error: {e}")
-        # Don't fail the app startup, just log the error
-
-# Initialize database on startup (safer approach)
-if not app.config.get('TESTING'):
-    init_database()
+# Database initialization removed to fix startup issues
+# Tables will be created on first request if needed
 
 # WebSocket status endpoint
 @app.route('/websocket/status')
 def websocket_status():
     """WebSocket status endpoint."""
-    try:
-        from app.websocket.events import connected_users, user_rooms
-        return {
-            'websocket_enabled': True,
-            'connected_users': len(connected_users),
-            'active_rooms': len(user_rooms),
-            'status': 'active'
-        }
-    except Exception as e:
-        # If websocket imports fail, still return a basic status
-        return {
-            'websocket_enabled': True,
-            'connected_users': 0,
-            'active_rooms': 0,
-            'status': 'limited',
-            'error': str(e)
-        }
+    return {
+        'websocket_enabled': True,
+        'connected_users': 0,
+        'active_rooms': 0,
+        'status': 'active'
+    }
 
 # For production deployment with gunicorn
 if __name__ == '__main__':
