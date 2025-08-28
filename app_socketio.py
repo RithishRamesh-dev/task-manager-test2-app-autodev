@@ -90,10 +90,11 @@ def websocket_status():
 # For production deployment with gunicorn
 if __name__ == '__main__':
     # Run with SocketIO support for development
+    port = int(os.environ.get('PORT', 8080))
     socketio.run(
         app,
         host='0.0.0.0',
-        port=int(os.environ.get('PORT', 5000)),
+        port=port,
         debug=os.environ.get('FLASK_ENV') == 'development',
         allow_unsafe_werkzeug=True  # For development only
     )

@@ -1,0 +1,39 @@
+name: task-manager-test2-app
+services:
+- environment_slug: python
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: RithishRamesh-dev/task-manager-test2-app-autodev
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  name: api
+  source_dir: /
+  envs:
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: ${db.DATABASE_URL}
+  - key: FLASK_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: PYTHONPATH
+    scope: RUN_AND_BUILD_TIME
+    value: .
+  - key: PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "8080"
+  - key: SECRET_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: your-secret-key-here-change-in-production
+  - key: JWT_SECRET_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: your-jwt-secret-key-here-change-in-production
+databases:
+- cluster_name: task-manager-test2-db
+  engine: PG
+  name: task-manager-test2-db
+region: nyc
