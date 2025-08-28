@@ -4,12 +4,14 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from config import config
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
+socketio = SocketIO()
 
 
 def create_app(config_name=None):
@@ -31,9 +33,21 @@ def create_app(config_name=None):
     # Configure CORS
     CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'])
     
+    # Initialize SocketIO with CORS support
+    socketio.init_app(
+        app,
+        cors_allowed_origins=['http://localhost:3000', 'http://127.0.0.1:3000'],
+        async_mode='eventlet',
+        logger=True,
+        engineio_logger=True
+    )
+    
     # Register blueprints
     from app.api import api as api_blueprint
     app.register_blueprint(api_blueprint)
+    
+    # Import WebSocket events to register them
+    from app.websocket import events
     
     # JWT configuration
     from app.api.auth import blacklisted_tokens
