@@ -80,7 +80,7 @@ def validate_task_priority(priority):
     """Validate task priority"""
     valid_priorities = ['low', 'medium', 'high', 'critical']
     if priority not in valid_priorities:
-        return {'valid': False, 'message': f'Priority must be one of: {', '.join(valid_priorities)}'}
+        return {'valid': False, 'message': f"Priority must be one of: {', '.join(valid_priorities)}"}
     return {'valid': True, 'message': 'Priority is valid'}
 
 

@@ -5,20 +5,37 @@ Main application entry point with Flask-SocketIO integration
 """
 
 import os
-from app import create_app, socketio, db
-from flask_migrate import upgrade
+import sys
+from flask import Flask
 
-# Create application instance
-app = create_app(os.getenv('FLASK_ENV', 'default'))
+# Create application instance with error handling
+try:
+    from app import create_app, socketio, db
+    from flask_migrate import upgrade
+    app = create_app(os.getenv('FLASK_ENV', 'default'))
+except Exception as e:
+    print(f"Error creating application: {e}", file=sys.stderr)
+    # Create a minimal Flask app for error handling
+    app = Flask(__name__)
+    
+    @app.route('/health')
+    def health_error():
+        return {'status': 'error', 'message': f'Application failed to start: {str(e)}'}, 500
+    
+    socketio = None
+    db = None
 
 @app.cli.command()
 def deploy():
     """Run deployment tasks."""
-    # Create database tables
-    db.create_all()
-    
-    # Migrate database to latest revision
-    upgrade()
+    if db is not None:
+        # Create database tables
+        db.create_all()
+        
+        # Migrate database to latest revision
+        upgrade()
+    else:
+        print("Database not available for deployment tasks")
 
 @app.shell_context_processor
 def make_shell_context():
