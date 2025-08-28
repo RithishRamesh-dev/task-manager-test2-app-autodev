@@ -57,8 +57,9 @@ services:
     type: SECRET
     value: your-jwt-secret-key-here-change-in-production
 
-# Database configuration (will be linked after creation)
+# Database configuration
 databases:
 - name: db
   engine: PG
+  cluster_name: task-manager-test2-db
   production: true
