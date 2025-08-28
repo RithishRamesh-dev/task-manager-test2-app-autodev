@@ -35,14 +35,19 @@ def create_app(config_name=None):
     # Configure CORS
     CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'])
     
-    # Initialize SocketIO with CORS support
-    socketio.init_app(
-        app,
-        cors_allowed_origins=['http://localhost:3000', 'http://127.0.0.1:3000'],
-        async_mode='eventlet',
-        logger=True,
-        engineio_logger=True
-    )
+    # Initialize SocketIO with CORS support - with error handling
+    try:
+        socketio.init_app(
+            app,
+            cors_allowed_origins=['http://localhost:3000', 'http://127.0.0.1:3000'],
+            async_mode='eventlet',
+            logger=True,
+            engineio_logger=True
+        )
+        print("SocketIO initialized successfully", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: SocketIO initialization failed: {e}", file=sys.stderr)
+        # Continue without SocketIO
     
     # Register blueprints
     from app.api import api as api_blueprint
