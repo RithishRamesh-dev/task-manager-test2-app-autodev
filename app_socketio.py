@@ -69,14 +69,23 @@ if not app.config.get('TESTING'):
 @app.route('/websocket/status')
 def websocket_status():
     """WebSocket status endpoint."""
-    from app.websocket.events import connected_users, user_rooms
-    
-    return {
-        'websocket_enabled': True,
-        'connected_users': len(connected_users),
-        'active_rooms': len(user_rooms),
-        'status': 'active'
-    }
+    try:
+        from app.websocket.events import connected_users, user_rooms
+        return {
+            'websocket_enabled': True,
+            'connected_users': len(connected_users),
+            'active_rooms': len(user_rooms),
+            'status': 'active'
+        }
+    except Exception as e:
+        # If websocket imports fail, still return a basic status
+        return {
+            'websocket_enabled': True,
+            'connected_users': 0,
+            'active_rooms': 0,
+            'status': 'limited',
+            'error': str(e)
+        }
 
 # For production deployment with gunicorn
 if __name__ == '__main__':
