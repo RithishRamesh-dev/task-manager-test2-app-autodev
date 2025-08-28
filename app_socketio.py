@@ -14,22 +14,48 @@ socketio = None
 db = None
 startup_error = None
 
-# Create application instance with error handling
-try:
-    from app import create_app, socketio as _socketio, db as _db
-    from flask_migrate import upgrade
-    app = create_app(os.getenv('FLASK_ENV', 'default'))
-    socketio = _socketio
-    db = _db
-except Exception as e:
-    startup_error = str(e)
-    print(f"Error creating application: {e}", file=sys.stderr)
-    # Create a minimal Flask app for error handling
-    app = Flask(__name__)
+def create_application():
+    """Create application with proper error handling"""
+    global app, socketio, db, startup_error
     
-    @app.route('/health')
-    def health_error():
-        return {'status': 'error', 'message': f'Application failed to start: {startup_error}'}, 500
+    try:
+        from app import create_app, socketio as _socketio, db as _db
+        from flask_migrate import upgrade
+        
+        # Set Flask environment first
+        config_name = os.getenv('FLASK_ENV', 'production')
+        print(f"Creating app with config: {config_name}", file=sys.stderr)
+        
+        app = create_app(config_name)
+        socketio = _socketio
+        db = _db
+        
+        print("Application created successfully", file=sys.stderr)
+        return app
+        
+    except Exception as e:
+        startup_error = str(e)
+        print(f"Error creating application: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        
+        # Create a minimal Flask app for error handling
+        app = Flask(__name__)
+        
+        @app.route('/health')
+        def health_error():
+            return {'status': 'error', 'message': f'Application failed to start: {startup_error}'}, 500
+            
+        @app.route('/')
+        def index_error():
+            return {'status': 'error', 'message': f'Application failed to start: {startup_error}'}, 500
+        
+        socketio = None
+        db = None
+        return app
+
+# Create the application
+app = create_application()
 
 @app.cli.command()
 def deploy():
@@ -91,10 +117,18 @@ def websocket_status():
 if __name__ == '__main__':
     # Run with SocketIO support for development
     port = int(os.environ.get('PORT', 8080))
-    socketio.run(
-        app,
-        host='0.0.0.0',
-        port=port,
-        debug=os.environ.get('FLASK_ENV') == 'development',
-        allow_unsafe_werkzeug=True  # For development only
-    )
+    if socketio is not None:
+        socketio.run(
+            app,
+            host='0.0.0.0',
+            port=port,
+            debug=os.environ.get('FLASK_ENV') == 'development',
+            allow_unsafe_werkzeug=True  # For development only
+        )
+    else:
+        # Fallback to regular Flask if SocketIO failed to initialize
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=os.environ.get('FLASK_ENV') == 'development'
+        )

@@ -1,4 +1,5 @@
 import os
+import sys
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -51,8 +52,11 @@ def create_app(config_name=None):
     from app.websocket import events
     
     # Register WebSocket handlers after app context is available
-    with app.app_context():
-        events.register_socketio_handlers()
+    try:
+        with app.app_context():
+            events.register_socketio_handlers()
+    except Exception as e:
+        print(f"Warning: Could not register WebSocket handlers: {e}", file=sys.stderr)
     
     # JWT configuration
     from app.api.auth import blacklisted_tokens
