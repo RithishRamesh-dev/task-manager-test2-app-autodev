@@ -47,8 +47,12 @@ def create_app(config_name=None):
     from app.api import api as api_blueprint
     app.register_blueprint(api_blueprint)
     
-    # Import WebSocket events to register them
+    # Import WebSocket events module
     from app.websocket import events
+    
+    # Register WebSocket handlers after app context is available
+    with app.app_context():
+        events.register_socketio_handlers()
     
     # JWT configuration
     from app.api.auth import blacklisted_tokens

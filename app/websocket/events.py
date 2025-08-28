@@ -6,15 +6,20 @@ Handles real-time updates for tasks, projects, comments, and user interactions
 from flask import session, request
 from flask_socketio import emit, join_room, leave_room, disconnect
 from flask_jwt_extended import decode_token, JWTManager
-from app import socketio, db
-from app.models.user import User
-from app.models.task import Task
-from app.models.project import Project
-from app.models.comment import Comment
-from app.models.project_member import ProjectMember
 import logging
 from datetime import datetime
 import json
+
+# Lazy imports to avoid application context issues
+def get_app_components():
+    """Lazy import of app components to avoid context issues"""
+    from app import socketio, db
+    from app.models.user import User
+    from app.models.task import Task
+    from app.models.project import Project
+    from app.models.comment import Comment
+    from app.models.project_member import ProjectMember
+    return socketio, db, User, Task, Project, Comment, ProjectMember
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +33,8 @@ user_rooms = {}
 def authenticate_socket_user():
     """Authenticate user from token or session"""
     try:
+        socketio, db, User, Task, Project, Comment, ProjectMember = get_app_components()
+        
         # Try JWT token first
         token = request.args.get('token')
         if token:
@@ -53,124 +60,138 @@ def authenticate_socket_user():
         return None
 
 
-@socketio.on('connect')
 def on_connect():
     """Handle client connection"""
-    user = authenticate_socket_user()
-    if not user:
-        logger.warning("Unauthorized socket connection attempt")
+    try:
+        socketio, db, User, Task, Project, Comment, ProjectMember = get_app_components()
+        
+        user = authenticate_socket_user()
+        if not user:
+            logger.warning("Unauthorized socket connection attempt")
+            disconnect()
+            return False
+        
+        # Store user connection
+        connected_users[request.sid] = {
+            'user_id': user.id,
+            'username': user.username,
+            'full_name': user.full_name,
+            'connected_at': datetime.utcnow(),
+            'last_activity': datetime.utcnow()
+        }
+        
+        # Join user to personal room
+        join_room(f"user_{user.id}")
+        
+        # Join user to project rooms they're member of
+        user_projects = db.session.query(ProjectMember).filter_by(user_id=user.id).all()
+        for project_member in user_projects:
+            room_name = f"project_{project_member.project_id}"
+            join_room(room_name)
+            
+            # Track user rooms
+            if user.id not in user_rooms:
+                user_rooms[user.id] = set()
+            user_rooms[user.id].add(room_name)
+        
+        logger.info(f"User {user.username} connected with session {request.sid}")
+        
+        # Emit user connected event to project rooms
+        for project_member in user_projects:
+            socketio.emit('user_connected', {
+                'user_id': user.id,
+                'username': user.username,
+                'full_name': user.full_name,
+                'timestamp': datetime.utcnow().isoformat()
+            }, room=f"project_{project_member.project_id}")
+        
+        # Send initial connection success
+        emit('connected', {
+            'message': 'Successfully connected to real-time updates',
+            'user_id': user.id,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error in on_connect: {e}")
         disconnect()
         return False
-    
-    # Store user connection
-    connected_users[request.sid] = {
-        'user_id': user.id,
-        'username': user.username,
-        'full_name': user.full_name,
-        'connected_at': datetime.utcnow(),
-        'last_activity': datetime.utcnow()
-    }
-    
-    # Join user to personal room
-    join_room(f"user_{user.id}")
-    
-    # Join user to project rooms they're member of
-    user_projects = db.session.query(ProjectMember).filter_by(user_id=user.id).all()
-    for project_member in user_projects:
-        room_name = f"project_{project_member.project_id}"
+
+
+def on_disconnect():
+    """Handle client disconnection"""
+    try:
+        socketio, db, User, Task, Project, Comment, ProjectMember = get_app_components()
+        
+        if request.sid in connected_users:
+            user_info = connected_users[request.sid]
+            user_id = user_info['user_id']
+            username = user_info['username']
+            
+            # Emit user disconnected event to project rooms
+            if user_id in user_rooms:
+                for room_name in user_rooms[user_id]:
+                    socketio.emit('user_disconnected', {
+                        'user_id': user_id,
+                        'username': username,
+                        'timestamp': datetime.utcnow().isoformat()
+                    }, room=room_name)
+                
+                # Clean up user rooms
+                del user_rooms[user_id]
+            
+            # Remove from connected users
+            del connected_users[request.sid]
+            
+            logger.info(f"User {username} disconnected")
+    except Exception as e:
+        logger.error(f"Error in on_disconnect: {e}")
+
+
+def on_join_project(data):
+    """Join a project room for real-time updates"""
+    try:
+        socketio, db, User, Task, Project, Comment, ProjectMember = get_app_components()
+        
+        user = authenticate_socket_user()
+        if not user:
+            emit('error', {'message': 'Authentication required'})
+            return
+        
+        project_id = data.get('project_id')
+        if not project_id:
+            emit('error', {'message': 'Project ID required'})
+            return
+        
+        # Verify user has access to project
+        project_member = ProjectMember.query.filter_by(
+            user_id=user.id, 
+            project_id=project_id
+        ).first()
+        
+        if not project_member:
+            emit('error', {'message': 'Access denied to project'})
+            return
+        
+        room_name = f"project_{project_id}"
         join_room(room_name)
         
         # Track user rooms
         if user.id not in user_rooms:
             user_rooms[user.id] = set()
         user_rooms[user.id].add(room_name)
-    
-    logger.info(f"User {user.username} connected with session {request.sid}")
-    
-    # Emit user connected event to project rooms
-    for project_member in user_projects:
-        socketio.emit('user_connected', {
-            'user_id': user.id,
-            'username': user.username,
-            'full_name': user.full_name,
+        
+        emit('joined_project', {
+            'project_id': project_id,
+            'room': room_name,
             'timestamp': datetime.utcnow().isoformat()
-        }, room=f"project_{project_member.project_id}")
-    
-    # Send initial connection success
-    emit('connected', {
-        'message': 'Successfully connected to real-time updates',
-        'user_id': user.id,
-        'timestamp': datetime.utcnow().isoformat()
-    })
-
-
-@socketio.on('disconnect')
-def on_disconnect():
-    """Handle client disconnection"""
-    if request.sid in connected_users:
-        user_info = connected_users[request.sid]
-        user_id = user_info['user_id']
-        username = user_info['username']
+        })
         
-        # Emit user disconnected event to project rooms
-        if user_id in user_rooms:
-            for room_name in user_rooms[user_id]:
-                socketio.emit('user_disconnected', {
-                    'user_id': user_id,
-                    'username': username,
-                    'timestamp': datetime.utcnow().isoformat()
-                }, room=room_name)
-            
-            # Clean up user rooms
-            del user_rooms[user_id]
-        
-        # Remove from connected users
-        del connected_users[request.sid]
-        
-        logger.info(f"User {username} disconnected")
+        logger.info(f"User {user.username} joined project {project_id}")
+    except Exception as e:
+        logger.error(f"Error in on_join_project: {e}")
+        emit('error', {'message': 'Failed to join project'})
 
 
-@socketio.on('join_project')
-def on_join_project(data):
-    """Join a project room for real-time updates"""
-    user = authenticate_socket_user()
-    if not user:
-        emit('error', {'message': 'Authentication required'})
-        return
-    
-    project_id = data.get('project_id')
-    if not project_id:
-        emit('error', {'message': 'Project ID required'})
-        return
-    
-    # Verify user has access to project
-    project_member = ProjectMember.query.filter_by(
-        user_id=user.id, 
-        project_id=project_id
-    ).first()
-    
-    if not project_member:
-        emit('error', {'message': 'Access denied to project'})
-        return
-    
-    room_name = f"project_{project_id}"
-    join_room(room_name)
-    
-    # Track user rooms
-    if user.id not in user_rooms:
-        user_rooms[user.id] = set()
-    user_rooms[user.id].add(room_name)
-    
-    emit('joined_project', {
-        'project_id': project_id,
-        'room': room_name,
-        'timestamp': datetime.utcnow().isoformat()
-    })
-    
-    logger.info(f"User {user.username} joined project {project_id}")
-
-
-@socketio.on('leave_project')
 def on_leave_project(data):
     """Leave a project room"""
     user = authenticate_socket_user()
@@ -194,7 +215,6 @@ def on_leave_project(data):
     })
 
 
-@socketio.on('task_created')
 def on_task_created(data):
     """Handle task creation event"""
     user = authenticate_socket_user()
@@ -239,7 +259,6 @@ def on_task_created(data):
     logger.info(f"Task {task_id} created by {user.username} in project {project_id}")
 
 
-@socketio.on('task_updated')
 def on_task_updated(data):
     """Handle task update event"""
     user = authenticate_socket_user()
@@ -285,7 +304,6 @@ def on_task_updated(data):
     logger.info(f"Task {task_id} updated by {user.username}")
 
 
-@socketio.on('task_status_changed')
 def on_task_status_changed(data):
     """Handle task status change event"""
     user = authenticate_socket_user()
@@ -330,7 +348,6 @@ def on_task_status_changed(data):
         }, room=f"user_{task.assigned_to}")
 
 
-@socketio.on('task_deleted')
 def on_task_deleted(data):
     """Handle task deletion event"""
     user = authenticate_socket_user()
@@ -361,7 +378,6 @@ def on_task_deleted(data):
     logger.info(f"Task {task_id} deleted by {user.username}")
 
 
-@socketio.on('comment_added')
 def on_comment_added(data):
     """Handle new comment event"""
     user = authenticate_socket_user()
@@ -412,7 +428,6 @@ def on_comment_added(data):
         }, room=f"user_{task.assigned_to}")
 
 
-@socketio.on('project_updated')
 def on_project_updated(data):
     """Handle project update event"""
     user = authenticate_socket_user()
@@ -452,7 +467,6 @@ def on_project_updated(data):
     }, room=f"project_{project_id}")
 
 
-@socketio.on('user_typing')
 def on_user_typing(data):
     """Handle user typing indicator"""
     user = authenticate_socket_user()
@@ -481,7 +495,6 @@ def on_user_typing(data):
     }, room=f"project_{task.project_id}", include_self=False)
 
 
-@socketio.on('get_online_users')
 def on_get_online_users(data):
     """Get list of online users in a project"""
     user = authenticate_socket_user()
@@ -526,7 +539,6 @@ def on_get_online_users(data):
     })
 
 
-@socketio.on('ping')
 def on_ping():
     """Handle ping for keepalive"""
     user = authenticate_socket_user()
@@ -627,9 +639,43 @@ def emit_comment_added(comment, task, author):
 
 def emit_notification(user_id, notification_type, message, **kwargs):
     """Emit notification to specific user"""
+    socketio, db, User, Task, Project, Comment, ProjectMember = get_app_components()
     socketio.emit('notification', {
         'type': notification_type,
         'message': message,
         'timestamp': datetime.utcnow().isoformat(),
         **kwargs
     }, room=f"user_{user_id}")
+
+
+def register_socketio_handlers():
+    """Register all SocketIO event handlers"""
+    try:
+        socketio, db, User, Task, Project, Comment, ProjectMember = get_app_components()
+        
+        # Register all event handlers
+        socketio.on_event('connect', on_connect)
+        socketio.on_event('disconnect', on_disconnect)
+        socketio.on_event('join_project', on_join_project)
+        socketio.on_event('leave_project', on_leave_project)
+        socketio.on_event('task_created', on_task_created)
+        socketio.on_event('task_updated', on_task_updated)
+        socketio.on_event('task_status_changed', on_task_status_changed)
+        socketio.on_event('task_deleted', on_task_deleted)
+        socketio.on_event('comment_added', on_comment_added)
+        socketio.on_event('project_updated', on_project_updated)
+        socketio.on_event('user_typing', on_user_typing)
+        socketio.on_event('get_online_users', on_get_online_users)
+        socketio.on_event('ping', on_ping)
+        
+        logger.info("SocketIO event handlers registered successfully")
+        
+    except Exception as e:
+        logger.error(f"Error registering SocketIO handlers: {e}")
+
+
+# Try to register handlers on module load if app context is available
+try:
+    register_socketio_handlers()
+except Exception as e:
+    logger.info("SocketIO handlers will be registered when app context is available")
