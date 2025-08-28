@@ -1,1 +1,1 @@
-web: python app_socketio.py
+web: python simple_app.py
