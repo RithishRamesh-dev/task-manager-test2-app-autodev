@@ -99,8 +99,7 @@ def create_app(config_name=None):
             'message': 'Token has been revoked'
         }, 401
     
-    # Register the token revocation checker
-    app.before_request(check_if_token_revoked)
+    # Token revocation is handled by JWT decorators, no need for before_request
     
     # Create upload directory
     upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
