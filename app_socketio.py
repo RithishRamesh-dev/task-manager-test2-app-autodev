@@ -34,13 +34,10 @@ def create_application():
         @app.route('/health')
         def health_check():
             """Health check endpoint for deployment monitoring."""
-            return {
-                'status': 'healthy',
-                'message': 'Task Manager API is running',
-                'websocket_enabled': True
-            }
+            print("Health check called - SUCCESS path", file=sys.stderr)
+            return 'OK', 200
 
-        @app.route('/websocket/status')
+        @app.route('/websocket/status')  
         def websocket_status():
             """WebSocket status endpoint."""
             return {
@@ -64,7 +61,8 @@ def create_application():
         
         @app.route('/health')
         def health_error():
-            return {'status': 'error', 'message': f'Application failed to start: {startup_error}'}, 500
+            print(f"Health check called - ERROR path: {startup_error}", file=sys.stderr)
+            return 'ERROR', 500
             
         @app.route('/')
         def index_error():
