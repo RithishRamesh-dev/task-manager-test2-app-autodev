@@ -14,7 +14,6 @@ from app.utils.helpers import create_api_response, build_search_filters
 
 
 @api.route('/projects', methods=['POST'])
-@jwt_required()
 @require_active_user
 @validate_json_fields(
     required_fields=['name'],
@@ -61,7 +60,6 @@ def create_project():
 
 
 @api.route('/projects', methods=['GET'])
-@jwt_required()
 @require_active_user
 @paginate_query
 @handle_api_errors
@@ -140,7 +138,6 @@ def get_projects(page=1, per_page=20):
 
 
 @api.route('/projects/<int:project_id>', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_project(project_id):
@@ -202,7 +199,6 @@ def get_project(project_id):
 
 
 @api.route('/projects/<int:project_id>', methods=['PUT'])
-@jwt_required()
 @require_active_user
 @validate_json_fields(
     optional_fields=['name', 'description', 'status']
@@ -273,7 +269,6 @@ def update_project(project_id):
 
 
 @api.route('/projects/<int:project_id>', methods=['DELETE'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def delete_project(project_id):
@@ -311,7 +306,6 @@ def delete_project(project_id):
 
 
 @api.route('/projects/<int:project_id>/members', methods=['POST'])
-@jwt_required()
 @require_active_user
 @validate_json_fields(required_fields=['user_id'])
 @handle_api_errors
@@ -368,7 +362,6 @@ def add_project_member(project_id):
 
 
 @api.route('/projects/<int:project_id>/members/<int:user_id>', methods=['DELETE'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def remove_project_member(project_id, user_id):
@@ -403,7 +396,6 @@ def remove_project_member(project_id, user_id):
 
 
 @api.route('/projects/<int:project_id>/members', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_project_members(project_id):

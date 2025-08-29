@@ -7,6 +7,7 @@ from app import db
 from app.api import api
 from app.models.task import Task
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.category import Category, TaskCategory
 from app.utils.decorators import handle_api_errors, require_active_user, paginate_query, validate_json_fields
@@ -15,7 +16,6 @@ from app.utils.helpers import create_api_response, build_search_filters
 
 
 @api.route('/tasks', methods=['POST'])
-@jwt_required()
 @require_active_user
 @validate_json_fields(
     required_fields=['title', 'project_id'],
@@ -92,7 +92,6 @@ def create_task():
 
 
 @api.route('/tasks', methods=['GET'])
-@jwt_required()
 @require_active_user
 @paginate_query
 @handle_api_errors
@@ -220,7 +219,6 @@ def get_tasks(page=1, per_page=20):
 
 
 @api.route('/tasks/<int:task_id>', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_task(task_id):
@@ -251,7 +249,6 @@ def get_task(task_id):
 
 
 @api.route('/tasks/<int:task_id>', methods=['PUT'])
-@jwt_required()
 @require_active_user
 @validate_json_fields(
     optional_fields=['title', 'description', 'status', 'priority', 'assigned_to', 'due_date', 'category_ids']
@@ -359,7 +356,6 @@ def update_task(task_id):
 
 
 @api.route('/tasks/<int:task_id>', methods=['DELETE'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def delete_task(task_id):
@@ -385,7 +381,6 @@ def delete_task(task_id):
 
 
 @api.route('/tasks/<int:task_id>/assign', methods=['POST'])
-@jwt_required()
 @require_active_user
 @validate_json_fields(required_fields=['user_id'])
 @handle_api_errors
@@ -425,7 +420,6 @@ def assign_task(task_id):
 
 
 @api.route('/tasks/<int:task_id>/unassign', methods=['POST'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def unassign_task(task_id):
@@ -455,7 +449,6 @@ def unassign_task(task_id):
 
 
 @api.route('/tasks/my', methods=['GET'])
-@jwt_required()
 @require_active_user
 @paginate_query
 @handle_api_errors

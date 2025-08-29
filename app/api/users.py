@@ -13,7 +13,6 @@ from app.utils.helpers import create_api_response, build_search_filters, mask_em
 
 
 @api.route('/users/search', methods=['GET'])
-@jwt_required()
 @require_active_user
 @paginate_query
 @handle_api_errors
@@ -93,7 +92,6 @@ def search_users(page=1, per_page=20):
 
 
 @api.route('/users/<int:user_id>', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_user_profile(user_id):
@@ -184,7 +182,6 @@ def get_user_profile(user_id):
 
 
 @api.route('/users/<int:user_id>/stats', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_user_stats(user_id):
@@ -267,7 +264,6 @@ def get_user_stats(user_id):
 
 
 @api.route('/users/me/dashboard', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_dashboard_data():

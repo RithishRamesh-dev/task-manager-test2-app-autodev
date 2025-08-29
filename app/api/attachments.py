@@ -16,7 +16,6 @@ from app.utils.helpers import (
 
 
 @api.route('/tasks/<int:task_id>/attachments', methods=['POST'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def upload_attachment(task_id):
@@ -116,7 +115,6 @@ def upload_attachment(task_id):
 
 
 @api.route('/tasks/<int:task_id>/attachments', methods=['GET'])
-@jwt_required()
 @require_active_user
 @paginate_query
 @handle_api_errors
@@ -162,7 +160,6 @@ def get_task_attachments(task_id, page=1, per_page=20):
 
 
 @api.route('/attachments/<int:attachment_id>', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def get_attachment(attachment_id):
@@ -184,7 +181,6 @@ def get_attachment(attachment_id):
 
 
 @api.route('/attachments/<int:attachment_id>/download', methods=['GET'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def download_attachment(attachment_id):
@@ -215,7 +211,6 @@ def download_attachment(attachment_id):
 
 
 @api.route('/attachments/<int:attachment_id>', methods=['DELETE'])
-@jwt_required()
 @require_active_user
 @handle_api_errors
 def delete_attachment(attachment_id):
@@ -251,7 +246,6 @@ def delete_attachment(attachment_id):
 
 
 @api.route('/attachments/my', methods=['GET'])
-@jwt_required()
 @require_active_user
 @paginate_query
 @handle_api_errors

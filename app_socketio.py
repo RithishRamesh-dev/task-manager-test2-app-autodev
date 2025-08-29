@@ -47,6 +47,25 @@ def create_application():
                 'status': 'active'
             }
 
+        @app.route('/')
+        def api_info():
+            """API information and documentation."""
+            return {
+                'name': 'Task Manager API',
+                'version': '1.0.0',
+                'status': 'running',
+                'endpoints': {
+                    'health': '/health',
+                    'auth': '/api/v1/auth/*',
+                    'tasks': '/api/v1/tasks',
+                    'projects': '/api/v1/projects', 
+                    'categories': '/api/v1/categories',
+                    'users': '/api/v1/users',
+                    'websocket': '/websocket/status'
+                },
+                'documentation': 'RESTful API for task management with JWT authentication'
+            }
+
         @app.route('/init-db', methods=['POST'])
         def init_database():
             """Initialize database tables."""
