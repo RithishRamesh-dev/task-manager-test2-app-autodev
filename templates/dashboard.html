@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Task Manager{% endblock %}
+
+{% block content %}
+<div class="dashboard-stats" id="dashboard-stats">
+    <div class="stat-card">
+        <h3 id="total-tasks">0</h3>
+        <p>Total Tasks</p>
+    </div>
+    <div class="stat-card">
+        <h3 id="pending-tasks">0</h3>
+        <p>Pending Tasks</p>
+    </div>
+    <div class="stat-card">
+        <h3 id="completed-tasks">0</h3>
+        <p>Completed Tasks</p>
+    </div>
+    <div class="stat-card">
+        <h3 id="total-projects">0</h3>
+        <p>Active Projects</p>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Recent Tasks</h3>
+            <a href="/tasks" class="btn btn-primary btn-sm">View All</a>
+        </div>
+        <div id="recent-tasks">
+            <p style="text-align: center; color: var(--secondary-color);">Loading tasks...</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Active Projects</h3>
+            <a href="/projects" class="btn btn-primary btn-sm">View All</a>
+        </div>
+        <div id="active-projects">
+            <p style="text-align: center; color: var(--secondary-color);">Loading projects...</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Quick Actions</h3>
+    </div>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <button class="btn btn-success" onclick="showCreateTaskModal()">
+            + Create Task
+        </button>
+        <button class="btn btn-primary" onclick="showCreateProjectModal()">
+            + Create Project
+        </button>
+        <a href="/tasks" class="btn btn-secondary">View All Tasks</a>
+        <a href="/projects" class="btn btn-secondary">Manage Projects</a>
+    </div>
+</div>
+
+<!-- Create Task Modal -->
+<div class="modal" id="create-task-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Create New Task</h3>
+            <button class="modal-close" onclick="hideCreateTaskModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="create-task-form">
+                <div class="form-group">
+                    <label class="form-label">Title</label>
+                    <input type="text" id="task-title" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="task-description" class="form-control"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Project</label>
+                    <select id="task-project" class="form-control form-select">
+                        <option value="">Select project...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select id="task-priority" class="form-control form-select" required>
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Due Date</label>
+                    <input type="datetime-local" id="task-due-date" class="form-control">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideCreateTaskModal()">Cancel</button>
+            <button class="btn btn-success" onclick="createTask()">Create Task</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create Project Modal -->
+<div class="modal" id="create-project-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Create New Project</h3>
+            <button class="modal-close" onclick="hideCreateProjectModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="create-project-form">
+                <div class="form-group">
+                    <label class="form-label">Project Name</label>
+                    <input type="text" id="project-name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="project-description" class="form-control"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Color</label>
+                    <input type="color" id="project-color" class="form-control" value="#007bff">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideCreateProjectModal()">Cancel</button>
+            <button class="btn btn-success" onclick="createProject()">Create Project</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block javascript %}
+let projects = [];
+
+// Load dashboard data
+async function loadDashboardData() {
+    try {
+        // Load user stats
+        const statsResponse = await apiGet('/api/v1/users/me/dashboard');
+        if (statsResponse.ok) {
+            const stats = await statsResponse.json();
+            updateDashboardStats(stats);
+        }
+
+        // Load recent tasks
+        const tasksResponse = await apiGet('/api/v1/tasks?limit=5');
+        if (tasksResponse.ok) {
+            const tasksData = await tasksResponse.json();
+            displayRecentTasks(tasksData.tasks || []);
+        }
+
+        // Load active projects
+        const projectsResponse = await apiGet('/api/v1/projects');
+        if (projectsResponse.ok) {
+            const projectsData = await projectsResponse.json();
+            projects = projectsData.projects || [];
+            displayActiveProjects(projects.slice(0, 5));
+            populateProjectSelect();
+        }
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+        showAlert('Error loading dashboard data', 'error');
+    }
+}
+
+function updateDashboardStats(stats) {
+    document.getElementById('total-tasks').textContent = stats.total_tasks || 0;
+    document.getElementById('pending-tasks').textContent = stats.pending_tasks || 0;
+    document.getElementById('completed-tasks').textContent = stats.completed_tasks || 0;
+    document.getElementById('total-projects').textContent = stats.total_projects || 0;
+}
+
+function displayRecentTasks(tasks) {
+    const container = document.getElementById('recent-tasks');
+    if (tasks.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--secondary-color);">No recent tasks</p>';
+        return;
+    }
+
+    const tasksHTML = tasks.map(task => `
+        <div class="task-item priority-${task.priority}" style="margin-bottom: 0.5rem;">
+            <div class="task-header">
+                <h4 class="task-title">${task.title}</h4>
+                <span class="task-status status-${task.status}">${task.status.replace('_', ' ')}</span>
+            </div>
+            <div class="task-meta">
+                <span>Priority: ${task.priority}</span>
+                ${task.project_name ? `<span>Project: ${task.project_name}</span>` : ''}
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = tasksHTML;
+}
+
+function displayActiveProjects(projects) {
+    const container = document.getElementById('active-projects');
+    if (projects.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--secondary-color);">No active projects</p>';
+        return;
+    }
+
+    const projectsHTML = projects.map(project => `
+        <div style="border-left: 4px solid ${project.color || '#007bff'}; padding: 0.5rem; margin-bottom: 0.5rem; background: #f8f9fa; border-radius: 4px;">
+            <h4 style="margin: 0; font-size: 1rem;">${project.name}</h4>
+            <p style="margin: 0.25rem 0; font-size: 0.875rem; color: var(--secondary-color);">
+                ${project.description || 'No description'}
+            </p>
+        </div>
+    `).join('');
+
+    container.innerHTML = projectsHTML;
+}
+
+function populateProjectSelect() {
+    const select = document.getElementById('task-project');
+    select.innerHTML = '<option value="">Select project...</option>';
+    projects.forEach(project => {
+        const option = document.createElement('option');
+        option.value = project.id;
+        option.textContent = project.name;
+        select.appendChild(option);
+    });
+}
+
+// Modal functions
+function showCreateTaskModal() {
+    document.getElementById('create-task-modal').classList.add('show');
+}
+
+function hideCreateTaskModal() {
+    document.getElementById('create-task-modal').classList.remove('show');
+    document.getElementById('create-task-form').reset();
+}
+
+function showCreateProjectModal() {
+    document.getElementById('create-project-modal').classList.add('show');
+}
+
+function hideCreateProjectModal() {
+    document.getElementById('create-project-modal').classList.remove('show');
+    document.getElementById('create-project-form').reset();
+}
+
+// Create functions
+async function createTask() {
+    const taskData = {
+        title: document.getElementById('task-title').value,
+        description: document.getElementById('task-description').value,
+        project_id: document.getElementById('task-project').value || null,
+        priority: document.getElementById('task-priority').value,
+        due_date: document.getElementById('task-due-date').value || null
+    };
+
+    if (!taskData.title) {
+        showAlert('Please enter a task title', 'error');
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await apiPost('/api/v1/tasks', taskData);
+        const result = await response.json();
+
+        if (response.ok) {
+            showAlert('Task created successfully!', 'success');
+            hideCreateTaskModal();
+            loadDashboardData(); // Refresh dashboard
+        } else {
+            showAlert(result.error || 'Failed to create task', 'error');
+        }
+    } catch (error) {
+        console.error('Error creating task:', error);
+        showAlert('Error creating task', 'error');
+    }
+
+    hideLoading();
+}
+
+async function createProject() {
+    const projectData = {
+        name: document.getElementById('project-name').value,
+        description: document.getElementById('project-description').value,
+        color: document.getElementById('project-color').value
+    };
+
+    if (!projectData.name) {
+        showAlert('Please enter a project name', 'error');
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const response = await apiPost('/api/v1/projects', projectData);
+        const result = await response.json();
+
+        if (response.ok) {
+            showAlert('Project created successfully!', 'success');
+            hideCreateProjectModal();
+            loadDashboardData(); // Refresh dashboard
+        } else {
+            showAlert(result.error || 'Failed to create project', 'error');
+        }
+    } catch (error) {
+        console.error('Error creating project:', error);
+        showAlert('Error creating project', 'error');
+    }
+
+    hideLoading();
+}
+
+// Refresh functions for WebSocket updates
+window.refreshTasks = loadDashboardData;
+window.refreshProjects = loadDashboardData;
+
+// Load data when page loads
+loadDashboardData();
+{% endblock %}

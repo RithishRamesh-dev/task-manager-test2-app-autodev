@@ -5,15 +5,12 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from flask_socketio import SocketIO
 from config import config
-from __version__ import __version__
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
-socketio = SocketIO()
 
 
 def create_app(config_name=None):
@@ -32,36 +29,20 @@ def create_app(config_name=None):
     migrate.init_app(app, db)
     jwt.init_app(app)
     
+    # Initialize SocketIO
+    from app.websockets import socketio
+    socketio.init_app(app, cors_allowed_origins="*", logger=True, engineio_logger=True)
+    
     # Configure CORS
     CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'])
-    
-    # Initialize SocketIO with CORS support - with error handling
-    try:
-        socketio.init_app(
-            app,
-            cors_allowed_origins=['http://localhost:3000', 'http://127.0.0.1:3000'],
-            async_mode='eventlet',
-            logger=True,
-            engineio_logger=True
-        )
-        print("SocketIO initialized successfully", file=sys.stderr)
-    except Exception as e:
-        print(f"Warning: SocketIO initialization failed: {e}", file=sys.stderr)
-        # Continue without SocketIO
     
     # Register blueprints
     from app.api import api as api_blueprint
     app.register_blueprint(api_blueprint)
     
-    # Import WebSocket events module
-    from app.websocket import events
-    
-    # Register WebSocket handlers after app context is available
-    try:
-        with app.app_context():
-            events.register_socketio_handlers()
-    except Exception as e:
-        print(f"Warning: Could not register WebSocket handlers: {e}", file=sys.stderr)
+    # Register frontend routes
+    from app.frontend import frontend as frontend_blueprint
+    app.register_blueprint(frontend_blueprint)
     
     # JWT configuration
     from app.api.auth import blacklisted_tokens, check_if_token_revoked
@@ -105,4 +86,4 @@ def create_app(config_name=None):
     upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
     os.makedirs(upload_dir, exist_ok=True)
     
-    return app
+    return app, socketio
