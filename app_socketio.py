@@ -46,6 +46,23 @@ def create_application():
                 'active_rooms': 0,
                 'status': 'active'
             }
+
+        @app.route('/init-db', methods=['POST'])
+        def init_database():
+            """Initialize database tables."""
+            try:
+                with app.app_context():
+                    db.create_all()
+                    return {
+                        'status': 'success',
+                        'message': 'Database tables created successfully'
+                    }
+            except Exception as e:
+                print(f"Database initialization error: {e}", file=sys.stderr)
+                return {
+                    'status': 'error',
+                    'message': f'Database initialization failed: {str(e)}'
+                }, 500
         
         print("Application created successfully", file=sys.stderr)
         return app
