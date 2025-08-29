@@ -28,12 +28,20 @@ def create_app(config_name=None):
     migrate.init_app(app, db)
     jwt.init_app(app)
     
+    # Initialize SocketIO
+    from app.websockets import socketio
+    socketio.init_app(app, cors_allowed_origins="*", logger=True, engineio_logger=True)
+    
     # Configure CORS
     CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'])
     
     # Register blueprints
     from app.api import api as api_blueprint
     app.register_blueprint(api_blueprint)
+    
+    # Register frontend routes
+    from app.frontend import frontend as frontend_blueprint
+    app.register_blueprint(frontend_blueprint)
     
     # JWT configuration
     from app.api.auth import blacklisted_tokens
@@ -75,4 +83,4 @@ def create_app(config_name=None):
     upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
     os.makedirs(upload_dir, exist_ok=True)
     
-    return app
+    return app, socketio

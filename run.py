@@ -10,7 +10,7 @@ from app import create_app, db
 from app.models import User, Project, ProjectMember, Task, TaskComment, Category, TaskCategory, Attachment
 
 # Create Flask application instance
-app = create_app(os.environ.get('FLASK_ENV', 'development'))
+app, socketio = create_app(os.environ.get('FLASK_ENV', 'development'))
 
 # Make shell context available for flask shell command
 @app.shell_context_processor
@@ -29,4 +29,4 @@ def make_shell_context():
     }
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
