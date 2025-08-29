@@ -349,7 +349,6 @@ def change_password():
 
 
 # JWT token blacklist checker
-@current_app.before_request
 def check_if_token_revoked():
     """Check if JWT token is blacklisted"""
     if request.endpoint and 'auth' in request.endpoint:

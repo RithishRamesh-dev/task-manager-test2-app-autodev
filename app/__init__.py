@@ -64,7 +64,7 @@ def create_app(config_name=None):
         print(f"Warning: Could not register WebSocket handlers: {e}", file=sys.stderr)
     
     # JWT configuration
-    from app.api.auth import blacklisted_tokens
+    from app.api.auth import blacklisted_tokens, check_if_token_revoked
     
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
@@ -98,6 +98,9 @@ def create_app(config_name=None):
             'success': False,
             'message': 'Token has been revoked'
         }, 401
+    
+    # Register the token revocation checker
+    app.before_request(check_if_token_revoked)
     
     # Create upload directory
     upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
